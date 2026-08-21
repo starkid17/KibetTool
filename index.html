@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Precision Digit Analyzer</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #131b2e;
+            --accent-blue: #3b82f6;
+            --success-green: #10b981;
+            --danger-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --gold: #fbbf24;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-main); padding: 15px; margin: 0; }
+        h2 { color: var(--accent-blue); font-size: 18px; text-align: center; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+        .welcome-banner { text-align: center; font-size: 14px; color: var(--gold); font-weight: bold; margin-bottom: 15px; background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155; }
+        .card { background: var(--card-bg); padding: 16px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+        label { display: block; margin-top: 8px; font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        select { width: 100%; padding: 12px; margin-top: 6px; background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline: none; }
+        .btn-group { display: flex; gap: 12px; margin-top: 15px; }
+        button { flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none; font-size: 14px; }
+        .btn-start { background: var(--success-green); color: #fff; }
+        .btn-stop { background: var(--danger-red); color: #fff; }
+        
+        .ranking-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+        .rank-item { background: #1e293b; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
+        .rank-item.hot { border-color: var(--success-green); background: #064e3b33; }
+        .digit-num { font-size: 18px; font-weight: bold; color: var(--text-main); }
+        .digit-pct { font-size: 14px; color: var(--gold); font-weight: bold; }
+        
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #334155; color: #fff; }
+        .log-box { background: #070a12; padding: 10px; font-family: monospace; font-size: 11px; height: 120px; overflow-y: scroll; border-radius: 8px; border: 1px solid #1e293b; color: #38bdf8; margin-top: 10px;}
+        .signal-alert { background: #1e1b4b; border: 1px solid #6366f1; padding: 14px; border-radius: 8px; margin-top: 12px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h2>Precision Digit Analyzer</h2>
+    <div class="welcome-banner" id="welcomeBanner">Welcome Kipyegon! Today we print more dollars! 💵</div>
+
+    <!-- Main Dashboard Card -->
+    <div class="card">
+        <label>Select Market Feed</label>
+        <select id="symbol">
+            <option value="R_100">Volatility 100 Index</option>
+            <option value="R_75">Volatility 75 Index</option>
+            <option value="R_50">Volatility 50 Index</option>
+            <option value="R_25">Volatility 25 Index</option>
+            <option value="R_10">Volatility 10 Index</option>
+            <option value="1HZ100V">1-Second Volatility 100</option>
+            <option value="1HZ50V">1-Second Volatility 50</option>
+        </select>
+
+        <div class="btn-group">
+            <button class="btn-start" onclick="startEngine()">Start Analyzer</button>
+            <button class="btn-stop" onclick="stopEngine()">Pause Analyzer</button>
+        </div>
+    </div>
+
+    <!-- Analytics Dashboard Card -->
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+            <span id="statusBadge" class="status-badge">Idle</span>
+            <span id="sampleStatus" style="font-size: 12px; color: var(--text-muted);">Buffer: 0/500</span>
+        </div>
+
+        <label>Deep Market Rankings (500-Tick Rolling Window)</label>
+        <div class="ranking-grid" id="rankingGrid"></div>
+
+        <div id="signalBox" class="signal-alert" style="display:none;">
+            <strong style="color:var(--gold); font-size:15px;" id="signalText">Waiting for Stable Bias...</strong>
+        </div>
+
+        <div class="log-box" id="logBox">[System] Ready. Click 'Start Analyzer' to begin...</div>
+    </div>
+
+<script>
+let ws = null;
+let recentDigits = [];
+const SAMPLE_SIZE = 500; // Deep 500-tick buffer to filter out noise
+let isEngineActive = false;
+let previousTopDigit = null;
+let stabilityCount = 0;
+let lastSignalTime = 0;
+
+function log(msg) {
+    const box = document.getElementById('logBox');
+    box.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    box.scrollTop = box.scrollHeight;
+}
+
+function startEngine() {
+    if (isEngineActive) return;
+    
+    const symbol = document.getElementById('symbol').value;
+    recentDigits = [];
+    isEngineActive = true;
+
+    const badge = document.getElementById('statusBadge');
+    badge.innerText = "Connecting";
+    badge.style.background = "#eab308";
+    log(`Connecting to public feed for ${symbol}...`);
+
+    ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+    ws.onopen = () => {
+        log(`Pulling last ${SAMPLE_SIZE} historical ticks for instant baseline...`);
+        ws.send(JSON.stringify({
+            ticks_history: symbol,
+            adjust_start_time: 1,
+            count: SAMPLE_SIZE,
+            end: "latest",
+            start: 1,
+            style: "ticks",
+            req_id: 1
+        }));
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        // Load deep history instantly
+        if (data.msg_type === 'history' && data.history && data.history.prices) {
+            recentDigits = data.history.prices.map(price => parseInt(String(price).slice(-1)));
+            badge.innerText = "Analyzing Live";
+            badge.style.background = "#10b981";
+            log(`Loaded ${recentDigits.length} past ticks. Stability engine active.`);
+            runPrecisionAnalysis();
+
+            // Subscribe to live tick continuation
+            ws.send(JSON.stringify({ ticks: symbol, subscribe: 1, req_id: 2 }));
+        }
+
+        // Process incoming live ticks
+        if (data.msg_type === 'tick' && data.tick) {
+            const lastDigit = parseInt(String(data.tick.quote).slice(-1));
+            recentDigits.push(lastDigit);
+            if (recentDigits.length > SAMPLE_SIZE) {
+                recentDigits.shift();
+            }
+            runPrecisionAnalysis();
+        }
+    };
+
+    ws.onerror = () => {
+        log("WebSocket transmission error encountered.");
+    };
+
+    ws.onclose = () => {
+        if (isEngineActive) {
+            log("Connection dropped. Reconnecting automatically...");
+            setTimeout(startEngine, 1500);
+        } else {
+            log("Analyzer paused.");
+        }
+    };
+}
+
+function stopEngine() {
+    isEngineActive = false;
+    if (ws) ws.close();
+    
+    const badge = document.getElementById('statusBadge');
+    badge.innerText = "Idle";
+    badge.style.background = "#334155";
+    document.getElementById('signalBox').style.display = 'none';
+    log("Analyzer stopped.");
+}
+
+function runPrecisionAnalysis() {
+    if (recentDigits.length < 100) return;
+
+    let counts = Array(10).fill(0);
+    recentDigits.forEach(d => counts[d]++);
+
+    let stats = counts.map((count, digit) => ({
+        digit: digit,
+        count: count,
+        percentage: (count / recentDigits.length) * 100
+    })).sort((a, b) => b.percentage - a.percentage);
+
+    // Render Grid
+    let gridHtml = '';
+    stats.forEach((item, index) => {
+        let isStrong = item.percentage >= 11.5;
+        gridHtml += `
+            <div class="rank-item ${isStrong && index === 0 ? 'hot' : ''}">
+                <div>
+                    <span class="digit-num">#${item.digit}</span>
+                    <span style="font-size:10px; color:var(--text-muted); display:block;">Rank ${index+1}</span>
+                </div>
+                <div class="digit-pct">${item.percentage.toFixed(1)}%</div>
+            </div>
+        `;
+    });
+    document.getElementById('rankingGrid').innerHTML = gridHtml;
+    document.getElementById('sampleStatus').innerText = `Buffer Window: ${recentDigits.length}/${SAMPLE_SIZE} ticks`;
+
+    let topChoice = stats[0];
+    let secondChoice = stats[1];
+    let competitionGap = topChoice.percentage - secondChoice.percentage;
+    let now = Date.now();
+
+    const signalBox = document.getElementById('signalBox');
+    const signalText = document.getElementById('signalText');
+
+    // Stability Filter: Track if the top digit remains dominant across consecutive updates
+    if (topChoice.digit === previousTopDigit) {
+        stabilityCount++;
+    } else {
+        stabilityCount = 1;
+        previousTopDigit = topChoice.digit;
+    }
+
+    // High-Confidence Threshold Logic (Prevents False Spikes)
+    if (topChoice.percentage >= 11.2 && competitionGap >= 0.6 && stabilityCount >= 3) {
+        signalBox.style.display = 'block';
+        signalText.innerHTML = `🎯 STABLE SETUP ALERT!<br>Target Digit: <span style="color:#fff; font-size:20px;">#${topChoice.digit}</span><br><span style="font-size:12px; color:var(--text-muted);">Hit Rate: ${topChoice.percentage.toFixed(1)}% | Separation Gap: +${competitionGap.toFixed(1)}%</span>`;
+        
+        // Log clean signals with a cool-down block to prevent notification spam
+        if (now - lastSignalTime > 25000) {
+            lastSignalTime = now;
+            log(`[SIGNAL] High-probability setup verified. Target Match: Digit ${topChoice.digit} (${topChoice.percentage.toFixed(1)}%).`);
+        }
+    } else {
+        signalBox.style.display = 'none';
+    }
+}
+</script>
+
+</body>
+</html>
