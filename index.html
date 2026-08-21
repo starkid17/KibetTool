@@ -1,0 +1,80 @@
+<script>
+    function logout() {
+        localStorage.removeItem('isAuthenticated');
+        window.location.href = 'index.html';
+    }
+
+    // Configuration
+    const BUFFER_SIZE = 100; // Number of ticks to keep in memory
+    let tickBuffer = [];
+
+    const ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+    ws.onopen = function() {
+        // Subscribe to Volatility 100 Index ticks
+        ws.send(JSON.stringify({ ticks: "R_100" }));
+    };
+
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        if (data.tick) {
+            const price = data.tick.quote;
+            
+            // Extract the last digit safely (handling floating point formatting)
+            const priceStr = price.toString();
+            const lastDigit = parseInt(priceStr.slice(-1));
+
+            // Push to rolling buffer
+            tickBuffer.push(lastDigit);
+            if (tickBuffer.length > BUFFER_SIZE) {
+                tickBuffer.shift(); // Keep only the last 100 ticks
+            }
+
+            updateTerminal();
+        }
+    };
+
+    function updateTerminal() {
+        // Update buffer count display
+        document.getElementById('buffer-count').innerText = `${tickBuffer.length}/${BUFFER_SIZE} ticks`;
+
+        if (tickBuffer.length < 50) {
+            document.getElementById('prediction').innerText = "Collecting statistical data...";
+            document.getElementById('confidence').innerText = "-";
+            return;
+        }
+
+        // 1. Calculate Frequency of each digit (0-9) in the buffer
+        let counts = Array(10).fill(0);
+        tickBuffer.forEach(digit => counts[digit]++);
+
+        // Expected frequency for each digit out of total buffer size is 10%
+        const expected = tickBuffer.length * 0.1;
+
+        // 2. Find the most "Cold" digit (under-represented) and "Hot" digit (over-represented)
+        let minCount = Infinity;
+        let maxCount = -1;
+        let coldDigit = 0;
+        let hotDigit = 0;
+
+        counts.forEach((count, digit) => {
+            if (count < minCount) {
+                minCount = count;
+                coldDigit = digit;
+            }
+            if (count > maxCount) {
+                maxCount = count;
+                hotDigit = digit;
+            }
+        });
+
+        // 3. Calculate a basic confidence metric based on deviation from expected value
+        let deviation = Math.abs(minCount - expected);
+        let confidenceScore = Math.min(Math.round((deviation / expected) * 100), 95);
+
+        // Display results on the UI
+        document.getElementById('prediction').innerText = `Target Match: ${coldDigit} (Cold Reversion Model)`;
+        document.getElementById('confidence').innerText = `${confidenceScore}% Deviation Strength`;
+        document.getElementById('confidence').style.color = confidenceScore > 30 ? "#10b981" : "#f59e0b";
+    }
+</script>
