@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Precision Digit Intelligence Suite</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #131b2e;
+            --accent-blue: #3b82f6;
+            --success-green: #10b981;
+            --danger-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --gold: #fbbf24;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-main); padding: 15px; margin: 0; }
+        h2 { color: var(--accent-blue); font-size: 18px; text-align: center; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+        .welcome-banner { text-align: center; font-size: 14px; color: var(--gold); font-weight: bold; margin-bottom: 15px; background: #1e293b; padding: 10px; border-radius: 8px; border: 1px solid #334155; }
+        .card { background: var(--card-bg); padding: 16px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+        label { display: block; margin-top: 8px; font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        select, input { width: 100%; padding: 12px; margin-top: 6px; background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline: none; }
+        .btn-group { display: flex; gap: 12px; margin-top: 15px; }
+        button { flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none; font-size: 14px; }
+        .btn-start { background: var(--success-green); color: #fff; }
+        .btn-stop { background: var(--danger-red); color: #fff; }
+        .btn-login { background: var(--accent-blue); color: #fff; margin-top: 8px; }
+        
+        .ranking-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+        .rank-item { background: #1e293b; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
+        .rank-item.hot { border-color: var(--success-green); background: #064e3b33; }
+        .digit-num { font-size: 18px; font-weight: bold; color: var(--text-main); }
+        .digit-pct { font-size: 14px; color: var(--gold); font-weight: bold; }
+        
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #334155; color: #fff; }
+        .log-box { background: #070a12; padding: 10px; font-family: monospace; font-size: 11px; height: 120px; overflow-y: scroll; border-radius: 8px; border: 1px solid #1e293b; color: #38bdf8; margin-top: 10px;}
+        .stats-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; color: var(--text-muted); }
+        .signal-alert { background: #1e1b4b; border: 1px solid #6366f1; padding: 12px; border-radius: 8px; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <h2>Precision Digit Engine</h2>
+    <div class="welcome-banner" id="welcomeBanner">Precision Filtering Active: Waiting for Stable Bias...</div>
+
+    <!-- Auth Card -->
+    <div class="card" id="authCard">
+        <label>Deriv API Token (Trade Permission Required)</label>
+        <input type="password" id="apiToken" placeholder="Paste your API token here...">
+        <button class="btn-login" onclick="initSession()">Authorize & Connect Account</button>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div class="card" id="dashboardCard" style="display:none;">
+        <label>Select Market Feed</label>
+        <select id="symbol">
+            <option value="R_100">Volatility 100 Index</option>
+            <option value="R_75">Volatility 75 Index</option>
+            <option value="R_50">Volatility 50 Index</option>
+            <option value="R_25">Volatility 25 Index</option>
+            <option value="R_10">Volatility 10 Index</option>
+            <option value="1HZ100V">1-Second Volatility 100</option>
+        </select>
+
+        <div class="stats-row">
+            <span>Account Balance: <strong id="accBalance" style="color:#fff;">$0.00</strong></span>
+            <span>Current Stake: <strong id="currentStakeDisplay" style="color:var(--gold);">$0.25</strong></span>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn-start" onclick="startEngine()">Start Precision Analyzer</button>
+            <button class="btn-stop" onclick="stopEngine()">Pause Engine</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+            <span id="statusBadge" class="status-badge">Idle</span>
+            <span id="sampleStatus" style="font-size: 12px; color: var(--text-muted);">Buffer: 0/500</span>
+        </div>
+
+        <label>Deep Market Analysis (500-Tick Rolling Sample)</label>
+        <div class="ranking-grid" id="rankingGrid"></div>
+
+        <div id="signalBox" class="signal-alert" style="display:none;">
+            <strong style="color:var(--gold); font-size:14px;" id="signalText">Analyzing Stability...</strong>
+        </div>
+
+        <div class="log-box" id="logBox">[System] Ready for authorization...</div>
+    </div>
+
+<script>
+let ws = null;
+let recentDigits = [];
+const SAMPLE_SIZE = 500; // Expanded for deep accuracy
+let isEngineActive = false;
+let previousTopDigit = null;
+let stabilityCount = 0;
+let lastSignalTime = 0;
+
+let currentStake = 0.25;
+
+function log(msg) {
+    const box = document.getElementById('logBox');
+    box.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    box.scrollTop = box.scrollHeight;
+}
+
+function initSession() {
+    const token = document.getElementById('apiToken').value.trim();
+    if (!token) {
+        alert("Please paste a valid Deriv API token.");
+        return;
+    }
+
+    log("Connecting to Deriv WebSocket gateway...");
+    ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+    ws.onopen = () => {
+        log("Sending authentication token...");
+        ws.send(JSON.stringify({ authorize: token }));
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.msg_type === 'authorize') {
+            if (data.error) {
+                log(`Auth Error: ${data.error.message}`);
+                alert(`Authorization Failed: ${data.error.message}`);
+            } else {
+                log(`Successfully authorized: ${data.authorize.email}`);
+                document.getElementById('authCard').style.display = 'none';
+                document.getElementById('dashboardCard').style.display = 'block';
+                document.getElementById('accBalance').innerText = `$${parseFloat(data.authorize.balance).toFixed(2)}`;
+                document.getElementById('statusBadge').innerText = "Ready";
+                
+                setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ balance: 1 }));
+                    }
+                }, 30000);
+            }
+        }
+
+        if (data.msg_type === 'balance') {
+            document.getElementById('accBalance').innerText = `$${parseFloat(data.balance.balance).toFixed(2)}`;
+        }
+
+        if (data.msg_type === 'history' && data.history && data.history.prices) {
+            recentDigits = data.history.prices.map(price => parseInt(String(price).slice(-1)));
+            log(`Loaded ${recentDigits.length} historical ticks. Precision filters engaged.`);
+            document.getElementById('statusBadge').innerText = "Scanning Ticks";
+            document.getElementById('statusBadge').style.background = "#10b981";
+            isEngineActive = true;
+            runPrecisionAnalysis();
+
+            const symbol = document.getElementById('symbol').value;
+            ws.send(JSON.stringify({ ticks: symbol, subscribe: 1, req_id: 2 }));
+        }
+
+        if (data.msg_type === 'tick' && data.tick) {
+            const lastDigit = parseInt(String(data.tick.quote).slice(-1));
+            recentDigits.push(lastDigit);
+            if (recentDigits.length > SAMPLE_SIZE) recentDigits.shift();
+            
+            if (isEngineActive) {
+                runPrecisionAnalysis();
+            }
+        }
+    };
+
+    ws.onerror = () => {
+        log("WebSocket connection error.");
+    };
+}
+
+function runPrecisionAnalysis() {
+    if (recentDigits.length < 100) return;
+
+    let counts = Array(10).fill(0);
+    recentDigits.forEach(d => counts[d]++);
+
+    let stats = counts.map((count, digit) => ({
+        digit: digit,
+        count: count,
+        percentage: (count / recentDigits.length) * 100
+    })).sort((a, b) => b.percentage - a.percentage);
+
+    // Render Grid
+    let gridHtml = '';
+    stats.forEach((item, index) => {
+        let isStrong = item.percentage >= 11.5;
+        gridHtml += `
+            <div class="rank-item ${isStrong && index === 0 ? 'hot' : ''}">
+                <div>
+                    <span class="digit-num">#${item.digit}</span>
+                    <span style="font-size:10px; color:var(--text-muted); display:block;">Rank ${index+1}</span>
+                </div>
+                <div class="digit-pct">${item.percentage.toFixed(1)}%</div>
+            </div>
+        `;
+    });
+    document.getElementById('rankingGrid').innerHTML = gridHtml;
+    document.getElementById('sampleStatus').innerText = `Buffer Window: ${recentDigits.length}/${SAMPLE_SIZE} ticks`;
+
+    let topChoice = stats[0];
+    let secondChoice = stats[1];
+    let competitionGap = topChoice.percentage - secondChoice.percentage;
+    let now = Date.now();
+
+    const signalBox = document.getElementById('signalBox');
+    const signalText = document.getElementById('signalText');
+
+    // STRICT STABILITY RULES:
+    // 1. Top digit percentage must be robust (>= 11.2% for 500-tick, or clear deviation)
+    // 2. Competition gap between Rank 1 and Rank 2 must be safe (> 0.6%) to avoid chop
+    // 3. Must hold position stably across calculation ticks
+    if (topChoice.digit === previousTopDigit) {
+        stabilityCount++;
+    } else {
+        stabilityCount = 1;
+        previousTopDigit = topChoice.digit;
+    }
+
+    if (topChoice.percentage >= 11.2 && competitionGap >= 0.6 && stabilityCount >= 3) {
+        signalBox.style.display = 'block';
+        signalText.innerHTML = `🎯 High-Confidence Setup Found!<br>Target Digit: <span style="color:#fff; font-size:18px;">#${topChoice.digit}</span> (Hit Rate: ${topChoice.percentage.toFixed(1)}% | Gap: +${competitionGap.toFixed(1)}%)`;
+        
+        // Log clean signals with cooldown control (minimum 25 seconds between alerts)
+        if (now - lastSignalTime > 25000) {
+            lastSignalTime = now;
+            log(`[SIGNAL] Verified stable pattern. Target Match: Digit ${topChoice.digit} with ${topChoice.percentage.toFixed(1)}% frequency.`);
+        }
+    } else {
+        signalBox.style.display = 'none';
+    }
+}
+
+function startEngine() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("Please authorize your account first.");
+        return;
+    }
+    const symbol = document.getElementById('symbol').value;
+    recentDigits = [];
+    isEngineActive = true;
+
+    document.getElementById('statusBadge').innerText = "Loading Deep History";
+    document.getElementById('statusBadge').style.background = "#eab308";
+    log(`Fetching deep tick history (${SAMPLE_SIZE} ticks) for ${symbol} to stabilize filter...`);
+
+    ws.send(JSON.stringify({
+        ticks_history: symbol,
+        adjust_start_time: 1,
+        count: SAMPLE_SIZE,
+        end: "latest",
+        start: 1,
+        style: "ticks",
+        req_id: 1
+    }));
+}
+
+function stopEngine() {
+    isEngineActive = false;
+    document.getElementById('statusBadge').innerText = "Paused";
+    document.getElementById('statusBadge').style.background = "#334155";
+    document.getElementById('signalBox').style.display = 'none';
+    log("Precision analysis engine paused.");
+}
+</script>
+
+</body>
+</html>
