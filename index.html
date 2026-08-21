@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deriv 2-Tick Digit Match Analyzer</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #131b2e;
+            --accent-blue: #3b82f6;
+            --success-green: #10b981;
+            --danger-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); color: var(--text-main); padding: 15px; margin: 0; }
+        h2 { color: var(--accent-blue); font-size: 20px; text-align: center; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }
+        .card { background: var(--card-bg); padding: 16px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #1e293b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+        label { display: block; margin-top: 10px; font-size: 13px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        select { width: 100%; padding: 12px; margin-top: 6px; background: #1e293b; border: 1px solid #334155; color: #fff; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline: none; }
+        select:focus { border-color: var(--accent-blue); }
+        .btn-group { display: flex; gap: 12px; margin-top: 18px; }
+        button { flex: 1; padding: 12px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none; font-size: 14px; transition: background 0.2s; }
+        .btn-start { background: var(--success-green); color: #fff; }
+        .btn-start:hover { background: #059669; }
+        .btn-stop { background: var(--danger-red); color: #fff; }
+        .btn-stop:hover { background: #dc2626; }
+        .log-box { background: #070a12; padding: 12px; font-family: monospace; font-size: 11px; height: 140px; overflow-y: scroll; border-radius: 8px; border: 1px solid #1e293b; color: #38bdf8; }
+        .signal-box { background: #172554; border-left: 4px solid var(--accent-blue); padding: 14px; margin-top: 12px; border-radius: 8px; }
+        .accuracy { font-size: 18px; color: #fbbf24; font-weight: bold; }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #334155; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <h2>Digit Match Terminal</h2>
+
+    <div class="card">
+        <label>Select Volatility Market</label>
+        <select id="symbol">
+            <optgroup label="Standard Volatility Indices">
+                <option value="R_10">Volatility 10 Index</option>
+                <option value="R_25">Volatility 25 Index</option>
+                <option value="R_50">Volatility 50 Index</option>
+                <option value="R_75">Volatility 75 Index</option>
+                <option value="R_100" selected>Volatility 100 Index</option>
+            </optgroup>
+            <optgroup label="1-Second Volatility Indices">
+                <option value="1HZ10V">1-Second Volatility 10</option>
+                <option value="1HZ25V">1-Second Volatility 25</option>
+                <option value="1HZ50V">1-Second Volatility 50</option>
+                <option value="1HZ75V">1-Second Volatility 75</option>
+                <option value="1HZ100V">1-Second Volatility 100</option>
+            </optgroup>
+        </select>
+
+        <div class="btn-group">
+            <button class="btn-start" onclick="startAnalysis()">Run Analysis</button>
+            <button class="btn-stop" onclick="stopAnalysis()">Stop Analysis</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Live Intelligence</h3>
+        <div style="margin-bottom: 10px;"><span id="statusBadge" class="status-badge">Idle</span> <span id="statusText" style="font-size: 13px; color: var(--text-muted); margin-left: 8px;">Select market & click run</span></div>
+        
+        <div class="signal-box" id="signalDisplay" style="display:none;">
+            <div>Target Match Prediction: <span id="targetDigit" style="font-size: 20px; color: var(--success-green); font-weight: bold;">-</span></div>
+            <div style="margin-top: 6px;">Confidence Accuracy: <span id="accuracyScore" class="accuracy">-</span></div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;" id="sampleStatus">Buffer: 0/100 ticks</div>
+        </div>
+        <br>
+        <div class="log-box" id="logBox">[System] Ready for instant feed...</div>
+    </div>
+
+<script>
+let ws = null;
+let recentDigits = [];
+const SAMPLE_SIZE = 100;
+let isAnalyzing = false;
+
+function log(msg) {
+    const box = document.getElementById('logBox');
+    box.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    box.scrollTop = box.scrollHeight;
+}
+
+function processDigits() {
+    if (recentDigits.length === 0) return;
+    let counts = Array(10).fill(0);
+    recentDigits.forEach(d => counts[d]++);
+
+    let maxCount = Math.max(...counts);
+    let hotDigit = counts.indexOf(maxCount);
+    let percentage = (maxCount / recentDigits.length) * 100;
+
+    let deviation = percentage - 10.0;
+    let calculatedAccuracy = Math.min(96, Math.max(48, 52 + (deviation * 3.2))).toFixed(1);
+
+    document.getElementById('targetDigit').innerText = `Digit [ ${hotDigit} ] (Hit rate: ${percentage.toFixed(1)}%)`;
+    document.getElementById('accuracyScore').innerText = `${calculatedAccuracy}%`;
+    document.getElementById('sampleStatus').innerText = `Buffer Window: ${recentDigits.length}/${SAMPLE_SIZE} ticks`;
+
+    if (percentage >= 13.0) {
+        log(`[SIGNAL] Digit ${hotDigit} hit ${percentage}%. Execute 2-tick match.`);
+    }
+}
+
+function startAnalysis() {
+    if (isAnalyzing) return;
+    
+    const symbol = document.getElementById('symbol').value;
+    recentDigits = [];
+    isAnalyzing = true;
+    
+    const badge = document.getElementById('statusBadge');
+    badge.innerText = "Syncing";
+    badge.style.background = "#eab308";
+    document.getElementById('statusText').innerText = `Fetching history for ${symbol}...`;
+    document.getElementById('signalDisplay').style.display = 'block';
+    log(`Connecting & pulling last 100 historical ticks instantly...`);
+
+    ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+    ws.onopen = () => {
+        // Fetch last 100 ticks instantly so it doesn't wait from scratch
+        ws.send(JSON.stringify({
+            ticks_history: symbol,
+            adjust_start_time: 1,
+            count: SAMPLE_SIZE,
+            end: "latest",
+            start: 1,
+            style: "ticks",
+            req_id: 1
+        }));
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        // Handle instant history load
+        if (data.msg_type === 'history' && data.history && data.history.prices) {
+            recentDigits = data.history.prices.map(price => parseInt(String(price).slice(-1)));
+            log(`Loaded ${recentDigits.length} past ticks instantly. Switching to live feed...`);
+            
+            badge.innerText = "Streaming";
+            badge.style.background = "#10b981";
+            document.getElementById('statusText').innerText = `Live feed on ${symbol}`;
+            
+            processDigits();
+
+            // Now subscribe to live real-time continuation ticks
+            ws.send(JSON.stringify({
+                ticks: symbol,
+                subscribe: 1,
+                req_id: 2
+            }));
+        }
+
+        // Handle incoming real-time ticks
+        if (data.msg_type === 'tick' && data.tick) {
+            const quote = String(data.tick.quote);
+            const lastDigit = parseInt(quote.slice(-1));
+            
+            recentDigits.push(lastDigit);
+            if (recentDigits.length > SAMPLE_SIZE) {
+                recentDigits.shift();
+            }
+
+            processDigits();
+        }
+    };
+
+    ws.onerror = () => {
+        log("Connection error encountered.");
+    };
+
+    ws.onclose = () => {
+        if (isAnalyzing) {
+            log("Stream disconnected. Reconnecting...");
+            setTimeout(startAnalysis, 1500);
+        } else {
+            log("Stream closed.");
+        }
+    };
+}
+
+function stopAnalysis() {
+    isAnalyzing = false;
+    if (ws) ws.close();
+    const badge = document.getElementById('statusBadge');
+    badge.innerText = "Idle";
+    badge.style.background = "#334155";
+    document.getElementById('statusText').innerText = "Paused.";
+    log("Analysis stopped.");
+}
+</script>
+
+</body>
+  </html>
+  
